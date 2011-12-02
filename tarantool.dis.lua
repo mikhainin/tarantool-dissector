@@ -73,6 +73,20 @@ function add_tulpes(buffer, subtree, name, count)
     
 end
 
+function add_fqtulpe(buffer, subtree, name, count)
+    
+    local tuples = subtree:add( tarantool_proto, buffer(), "fq_tuples (count: " .. count ..')' )
+    
+    local offset = 0
+    for i=1,count do
+        local size = buffer(0,4):le_uint()
+        offset = offset + add_one_tulpe( buffer(offset + 4), tuples )
+        offset = offset + 4
+    end
+    
+end
+
+
 function select_request_body(buffer, subtree)
     --[[ 
         <select_request_body> ::= <namespace_no><index_no>
@@ -112,12 +126,31 @@ function requestName(reqid)
     return requests[reqid] or 'UNKNOWN'
 end
 
+
+
+function decodeErrorCode(buf)
+    local completion_status = buf(0,1):le_uint()
+    local error_code = buf(1):le_uint()
+    
+    local result = "Code " .. completion_status
+    
+    if ( completion_status == 0 ) then
+        return "0 (Ok)"
+    elseif ( completion_status == 1 ) then -- try again
+        return "1 (Try again) " .. 'code: ' .. error_code
+    elseif ( completion_status == 2 ) then
+        return "2 (Error)"
+    else
+        return completion_status .. " (Unknown error code) " .. ' code: ' .. error_code
+    end    
+end
+
 function insert_request_body(buffer, subtree)
     --[[
         <insert_request_body> ::= <space_no><flags><tuple>
     ]]
     local tree =  subtree:add( tarantool_proto, buffer(),"Insert body")
-    -- subtree:add( buffer,"Insert data" )
+    
     local namespace_no = buffer(0,4):le_uint()
     local flags    = buffer(4, 4):le_uint()
     tree:add( buffer(0, 4), "Namespace # " .. namespace_no )
@@ -156,6 +189,36 @@ end
 function unknown_request_body(buffer, subtree)
     subtree:add( buffer,"Unknown command data" )
 end
+function unknown_response_body(buffer, subtree)
+    subtree:add( buffer,"Unknown response data" )
+end
+
+function insert_reponse_body(buffer, subtree)
+    --[[
+        <insert_response_body> ::= <count> | <count><fq_tuple>
+    ]]
+    local tree =  subtree:add( tarantool_proto, buffer(),"Insert response")
+    local count = buffer(0,4):le_uint()
+    tree:add( buffer(0, 4), "Affected rows " .. count )
+    
+    if ( buffer:len() > 4 ) then
+        -- subtree:add( buffer(4),"Insert response data" )
+        add_fqtulpe( buffer(4), subtree, "Select tulpes", count)
+    end
+end
+function select_reponse_body(buffer, subtree)
+    --[[
+        <insert_response_body> ::= <count><fq_tuple>*
+    ]]
+    local tree =  subtree:add( tarantool_proto, buffer(),"Select response")
+    local count = buffer(0,4):le_uint()
+    tree:add( buffer(0, 4), "Count: " .. count )
+    
+    if ( buffer:len() > 4 ) then
+        add_fqtulpe( buffer(4), subtree, "Select tulpes", count)
+        -- subtree:add( buffer(4),"Select response data" )
+    end
+end
 
 function requestfunction(reqid)
     local requests = {
@@ -166,6 +229,24 @@ function requestfunction(reqid)
             [21] = delete_request_body,
             [22] = call_request_body,
             [65280] = ping_request_body,
+    }
+    if (requests[reqid] == nil) then
+        return unknown_request_body
+    else
+        return requests[reqid]
+    end
+    
+end
+
+function responsefunction(reqid)
+    local requests = {
+            [13] = insert_response_body,
+            [17] = select_reponse_body,
+            [19] = unknown_response_body,
+            [20] = unknown_response_body, -- old delete
+            [21] = unknown_response_body,
+            [22] = unknown_response_body,
+            [65280] = unknown_response_body,
     }
     if (requests[reqid] == nil) then
         return unknown_request_body
@@ -208,13 +289,22 @@ function response(buffer, subtree)
     --[[
     <response> ::= <header><return_code>{<response_body>
     ]]
+    local req_type = buffer(0,4):le_uint()
     
     buffer = readHeader(buffer, subtree)
     if ( buffer:len() > 0 ) then
+    
         local code = buffer(0,4):le_uint()
-        
-        subtree:add( buffer(0,4),"Return code: " .. code )
-        subtree:add( buffer(4),"Data" )
+        if (code == 0) then
+            subtree:add( buffer(0,4),"Return code: " .. decodeErrorCode(buffer(0,4)) )
+            
+            local requestfunction = responsefunction(req_type)
+            
+            -- subtree:add( buffer(4),"Data" )
+            requestfunction(buffer(4), subtree)
+        else
+            subtree:add( buffer(0,4),"Return code: " .. decodeErrorCode(buffer(0,4)) )
+        end
     end
 
 end
@@ -259,68 +349,3 @@ tcp_table = DissectorTable.get("tcp.port")
 -- register our protocol to handle udp port 7777
 tcp_table:add(33013,tarantool_proto)
 
-
---[[
-do
-        local p_multi = Proto("multi","Tarantool");
-
-        local vs_protos = {
-                [2] = "mtp2",
-                [3] = "mtp3",
-                [4] = "alcap",
-                [5] = "h248",
-                [6] = "ranap",
-                [7] = "rnsap",
-                [8] = "nbap"
-        }
-
-        local f_proto = ProtoField.uint8("multi.protocol","Protocol",base.DEC,vs_protos)
-        local f_dir = ProtoField.uint8("multi.direction","Direction",base.DEC,{ [1] = "incoming", [0] = "outgoing"})
-        local f_text = ProtoField.string("multi.text","Text")
-
-	p_multi.fields = { f_proto, f_dir, f_text }
-
-        local data_dis = Dissector.get("data")
-
-        local protos = {
-                [2] = Dissector.get("mtp2"),
-                [3] = Dissector.get("mtp3"),
-                [4] = Dissector.get("alcap"),
-                [5] = Dissector.get("h248"),
-                [6] = Dissector.get("ranap"),
-                [7] = Dissector.get("rnsap"),
-                [8] = Dissector.get("nbap"),
-                [9] = Dissector.get("rrc"),
-                [10] = DissectorTable.get("sctp.ppi"):get_dissector(3), -- m3ua
-                [11] = DissectorTable.get("ip.proto"):get_dissector(132), -- sctp
-        }
-
-        function p_multi.dissector(buf,pkt,root) 
-
-                local t = root:add(p_multi,buf(0,2))
-                t:add(f_proto,buf(0,1))
-                t:add(f_dir,buf(1,1))
-
-                local proto_id = buf(0,1):uint()
-
-                local dissector = protos[proto_id]
-
-                if dissector ~= nil then
-                        dissector:call(buf(2):tvb(),pkt,root)
-                elseif proto_id < 2 then
-                        t:add(f_text,buf(2))
-                        -- pkt.cols.info:set(buf(2,buf:len() - 3):string())
-                else
-                        data_dis:call(buf(2):tvb(),pkt,root)
-                end 
-
-        end
-
-        local wtap_encap_table = DissectorTable.get("wtap_encap")
-        local udp_encap_table = DissectorTable.get("udp.port")
-
-        wtap_encap_table:add(wtap.USER15,p_multi)
-        wtap_encap_table:add(wtap.USER12,p_multi)
-        udp_encap_table:add(7555,p_multi)
-end
-	]]
