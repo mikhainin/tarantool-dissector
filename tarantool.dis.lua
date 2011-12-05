@@ -181,8 +181,22 @@ function delete_request_body(buffer, subtree)
     subtree:add( buffer,"Delete data" )
 end
 function call_request_body(buffer, subtree)
-    subtree:add( buffer,"Call data" )
+    --[[
+        <call_request_body> ::= <flags><proc_name><tuple>
+    ]]
+    local tree =  subtree:add( tarantool_proto, buffer,"Call data" )
+    
+    local flags = buffer(0,4):le_uint()
+    tree:add( buffer(0, 4), "Namespace # " .. flags )
+    
+    local field_length, used = leb128Unpack(buffer, 4)
+    local name = buffer(5, field_length):string()
+    tree:add( buffer(5, field_length), "name " .. name )
+    
+    add_one_tulpe(buffer(4 + 1 + field_length), tree)
 end
+
+
 function ping_request_body(buffer, subtree)
     subtree:add( buffer,"ping data" )
 end
