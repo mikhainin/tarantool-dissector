@@ -25,7 +25,7 @@ end
 
 
 
-function add_one_tulpe(buffer, subtree)
+function add_one_tulpe(buffer, subtree, num)
     --[[
         <tuple> ::= <cardinality><field>+
         <cardinality> ::= <int32>
@@ -51,7 +51,7 @@ function add_one_tulpe(buffer, subtree)
         data_length = data_length + field_length + used
     end
     
-    local tree =  subtree:add( tarantool_proto, buffer(0, data_length),"Tuple (cardinality: "..cardinality..')')
+    local tree =  subtree:add( tarantool_proto, buffer(0, data_length),"Tuple #" .. num .. " (cardinality: "..cardinality..')')
     for i,v in ipairs(array) do
         tree:add(buffer(v.start, v.length), v.title)
     end
@@ -68,7 +68,7 @@ function add_tulpes(buffer, subtree, name, count)
     
     local offset = 0
     for i=1,count do
-        offset = offset + add_one_tulpe( buffer(offset), tuples )
+        offset = offset + add_one_tulpe( buffer(offset), tuples, i )
     end
     
 end
@@ -80,7 +80,7 @@ function add_fqtulpe(buffer, subtree, name, count)
     local offset = 0
     for i=1,count do
         local size = buffer(0,4):le_uint()
-        offset = offset + add_one_tulpe( buffer(offset + 4), tuples )
+        offset = offset + add_one_tulpe( buffer(offset + 4), tuples, i )
         offset = offset + 4
     end
     
@@ -156,7 +156,7 @@ function insert_request_body(buffer, subtree)
     tree:add( buffer(0, 4), "Namespace # " .. namespace_no )
     tree:add( buffer(4, 4), "Flags # " .. flags )
     
-    add_one_tulpe(buffer(8), tree)
+    add_one_tulpe(buffer(8), tree, 0)
 
     
 end
@@ -174,7 +174,7 @@ function deletev13_request_body(buffer, subtree)
     local namespace_no = buffer(0,4):le_uint()
     tree:add( buffer(0, 4), "Namespace # " .. namespace_no )
     
-    add_one_tulpe(buffer(4), tree)
+    add_one_tulpe(buffer(4), tree, 1)
     
 end
 function delete_request_body(buffer, subtree)
@@ -193,7 +193,7 @@ function call_request_body(buffer, subtree)
     local name = buffer(5, field_length):string()
     tree:add( buffer(5, field_length), "name " .. name )
     
-    add_one_tulpe(buffer(4 + 1 + field_length), tree)
+    add_one_tulpe(buffer(4 + 1 + field_length), tree, 0)
 end
 
 
@@ -222,7 +222,7 @@ function insert_reponse_body(buffer, subtree)
 end
 function select_reponse_body(buffer, subtree)
     --[[
-        <insert_response_body> ::= <count><fq_tuple>*
+        <select_response_body> ::= <count><fq_tuple>*
     ]]
     local tree =  subtree:add( tarantool_proto, buffer(),"Select response")
     local count = buffer(0,4):le_uint()
@@ -230,10 +230,20 @@ function select_reponse_body(buffer, subtree)
     
     if ( buffer:len() > 4 ) then
         add_fqtulpe( buffer(4), subtree, "Select tulpes", count)
-        -- subtree:add( buffer(4),"Select response data" )
     end
 end
-
+function call_reponse_body(buffer, subtree)
+    --[[
+        <call_response_body> ::= <select_response_body>
+    ]]
+    local tree =  subtree:add( tarantool_proto, buffer(),"Call response")
+    local count = buffer(0,4):le_uint()
+    tree:add( buffer(0, 4), "Count: " .. count )
+    
+    if ( buffer:len() > 4 ) then
+        add_fqtulpe( buffer(4), subtree, "Call tulpes", count)
+    end
+end
 function requestfunction(reqid)
     local requests = {
             [13] = insert_request_body,
@@ -259,7 +269,7 @@ function responsefunction(reqid)
             [19] = unknown_response_body,
             [20] = unknown_response_body, -- old delete
             [21] = unknown_response_body,
-            [22] = unknown_response_body,
+            [22] = call_reponse_body,
             [65280] = unknown_response_body,
     }
     if (requests[reqid] == nil) then
