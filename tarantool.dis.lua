@@ -7,25 +7,32 @@ function leb128Unpack(buffer, offset)
     local result = 0
     local shift = 0
     local used = 1
+
     while true do
+
         local byte = buffer(offset, 1):le_uint();
+
         local bit7 = buffer(offset, 1):bitfield(0, 1)
         offset = offset + 1
-        local tmp = (bit7 == 0) and byte or (byte - 256)
-        result = result + ( tmp * (2 ^ shift) ) -- result |= (low order 7 bits of byte << shift);
-        
+
+        local tmp = (bit7 == 0) and byte or (byte - 128) -- reset 7th bit (byte & 0x80)
+
+        result = result * 128 + ( tmp * (2 ^ shift) ) -- result |= (low order 7 bits of byte << shift);
+
         if ( bit7 == 0) then
             break
         end
         shift = shift + 7
         used = used + 1
     end
+
     return result, used
 end
 
 
 
 function add_one_tulpe(buffer, subtree, num)
+    debug('-- add_one_tulpe --')
     --[[
         <tuple> ::= <cardinality><field>+
         <cardinality> ::= <int32>
