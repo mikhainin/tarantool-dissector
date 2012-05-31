@@ -80,6 +80,7 @@ function add_fqtulpe(buffer, subtree, name, count)
     local offset = 0
     for i=1,count do
         local size = buffer(0,4):le_uint()
+        tuples:add( buffer(offset,4), 'tuple size: ' .. size )
         offset = offset + add_one_tulpe( buffer(offset + 4), tuples, i )
         offset = offset + 4
     end
@@ -157,7 +158,6 @@ function insert_request_body(buffer, subtree)
     tree:add( buffer(4, 4), "Flags # " .. flags )
     
     add_one_tulpe(buffer(8), tree, 0)
-
     
 end
 
@@ -291,7 +291,7 @@ function readHeader(buffer, subtree)
     local header =  subtree:add( tarantool_proto, buffer(),"Header")
     header:add( buffer(0,4),"Request Type: " .. req_type .. ' (' .. requestName(req_type) .. ')' )
     header:add( buffer(4,4),"Body length: " .. length )
-    header:add( buffer(8,4),"Request ID: " .. req_id )
+    header:add( buffer(8,4),"Request ID: " .. req_id .. '[' .. string.format('%08X', req_id) .. ']' )
 
     return buffer(12, buffer:len() - 12)
 end
