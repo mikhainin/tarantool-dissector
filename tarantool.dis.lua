@@ -3,7 +3,7 @@ tarantool_proto = Proto("tarantool","Tarantool")
 
 function leb128Unpack(buffer, offset)
 -- see http://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
-    
+    debug('-- leb128Unpack --')
     local result = 0
     local shift = 0
     local used = 1
@@ -11,13 +11,13 @@ function leb128Unpack(buffer, offset)
     while true do
 
         local byte = buffer(offset, 1):le_uint();
-
+        debug('byte: ' .. byte .. ' ' .. string.format('%04X', byte))
         local bit7 = buffer(offset, 1):bitfield(0, 1)
         offset = offset + 1
 
         local tmp = (bit7 == 0) and byte or (byte - 128) -- reset 7th bit (byte & 0x80)
 
-        result = result * 128 + ( tmp * (2 ^ shift) ) -- result |= (low order 7 bits of byte << shift);
+        result = result * 128 + tmp  -- result |= (low order 7 bits of byte << shift);
 
         if ( bit7 == 0) then
             break
