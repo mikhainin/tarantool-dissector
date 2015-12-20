@@ -11,6 +11,7 @@ tarantool_proto.fields = {
 }
 ]]
 
+-- extracts bytes from the buffer
 function binary_string(buffer)
 	result = {}
 	for i=0,buffer:len() - 1 do
@@ -36,7 +37,7 @@ local function table_kv_concat(tbl, sep)
         table.insert(result, v)
     end
     for k, v in pairs(tbl) do
-        if not used_keys[i] then
+        if not used_keys[k] then
             table.insert(result, k .. ' = ' .. v)
         end
     end
@@ -82,41 +83,84 @@ local function parse_select(tbl, buffer, subtree)
     local limit    = tbl[0x12] -- int
     local offset   = tbl[0x13] -- int
     local iterator = tbl[0x14] -- int
-    local key      = tbl[0x14] -- array
+    local key      = tbl[0x20] -- array
     
-    local argument_string = table.concat(map(key, escape_call_arg), ', ')
+    local key_string = table.concat(map(key, escape_call_arg), ', ')
     
-    local descr = string.format('SELECT FROM space %d %s(%s) WHERE index(%d)', name, argument_string)
+    local descr = string.format(
+    	'SELECT FROM space %d WHERE index(%d) = (%s) LIMIT %d OFFSET %d ITERATOR %s', 
+    	space_id, 
+    	index_id,
+    	key_string,
+    	limit,
+    	offset,
+    	iterator or ('null')
+    )
+    subtree:add(buffer, descr)
+end
+
+local function parse_insert(tbl, buffer, subtree)
+    local tuple    = tbl[0x21]
+    local space_id = tbl[0x10]
+    
+    subtree:add(buffer, 'space_id: ' .. space_id)
+    local tuple_tree = subtree:add(buffer, 'tuple')
+    local tuple_str = table.concat(map(tuple, escape_call_arg), ', ')
+
+    tuple_tree:add(buffer, tuple_str)
+end
+
+local function parse_delete(tbl, buffer, subtree)
+    local key      = tbl[0x20]
+    local space_id = tbl[0x10]
+    local index_id = tbl[0x11]
+    
+    local key_string = table.concat(map(key, escape_call_arg), ', ')
+    
+    local descr = string.format(
+    	'DELETE FROM space(%d) WHERE index(%d) = (%s)',
+    	space_id,
+    	index_id,
+    	key_string
+    )
     subtree:add(buffer, descr)
 end
 
 
-local function response(tbl, buffer, subtree)
-    local data = tbl[0x30]
+local function parse_error_response(tbl, buffer, subtree)
+    local data = tbl[0x31]
     if not data then
         subtree:add(buffer, '(empty response body)')
     else
+     	subtree:add(buffer, data)
+    end    
+end
+
+local function parse_response(tbl, buffer, subtree)
+    local data = tbl[0x30]
+     if not data then
+         subtree:add(buffer, '(empty response body)')
+     else
         local value = map(data, escape_call_arg)
         local arguments_tree = subtree:add(buffer, 'tuple')
         for k, v in pairs(value) do
             arguments_tree:add(buffer, v)
         end
-    end
-    
+    end    
 end
 
-function parser_not_implemented(tbl, buffer, subtree)
+local function parser_not_implemented(tbl, buffer, subtree)
 	subtree:add(buffer, 'parser not yet implemented (or unknown packet?)')
 end
 
-function code_to_command(code)
+local function code_to_command(code)
 
 	local codes = {
-		[0x01] = {name = 'select', decoder = parser_not_implemented},
-		[0x02] = {name = 'insert', decoder = parser_not_implemented},
-		[0x03] = {name = 'replace', decoder = parser_not_implemented},
+		[0x01] = {name = 'select', decoder = parse_select},
+		[0x02] = {name = 'insert', decoder = parse_insert},
+		[0x03] = {name = 'replace', decoder = parse_insert},
 		[0x04] = {name = 'update', decoder = parser_not_implemented},
-		[0x05] = {name = 'delete', decoder = parser_not_implemented},
+		[0x05] = {name = 'delete', decoder = parse_delete},
 		[0x06] = {name = 'call', decoder = parse_call},
 		[0x07] = {name = 'auth', decoder = parser_not_implemented},
 		[0x08] = {name = 'eval', decoder = parse_eval},
@@ -126,14 +170,14 @@ function code_to_command(code)
 		[0x40] = {name = 'ping', decoder = parser_not_implemented},
 		
 		-- Value for <code> key in response can be:
-		[0x00]   = {name = 'OK', is_response = true},
+		[0x00]   = {name = 'OK', is_response = true, decoder = parse_response},
 		--[0x8XXX] = {name = 'ERROR', is_response = true},
 	};
 	if code >= 0x8000 then
-		return {name = 'ERROR', is_response = true}
+		return {name = 'ERROR', is_response = true, decoder = parse_error_response}
 	end
 
-	local unknown_code = {name = 'UNKNOWN'}
+	local unknown_code = {name = 'UNKNOWN', decoder = parser_not_implemented}
 	
 	return (codes[code] or unknown_code)
 end
@@ -185,7 +229,7 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
         
         decoder(body_data, body_buffer, subtree)
         
-        pinfo.cols.info = command.name .. ' request. ' .. tostring(pinfo.cols.info)
+        pinfo.cols.info = command.name .. ' request ' .. tostring(pinfo.cols.info)
         --[[print(body_data, bytes_used)
         for k,v in pairs(body_data) do
         	print(k,v)
@@ -197,7 +241,7 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
 	    local header_descr = string.format('code: 0x%02x (%s), sync: 0x%04x', header_data[0], command.name, header_data[1])
 		subtree:add(packet_buffer(0, bytes_used), header_descr)
         local body_data, bytes_used = msgpack.unpack(binary_string(packet_buffer(bytes_used)))
-        response(body_data, body_buffer, subtree)
+        command.decoder(body_data, body_buffer, subtree)
         pinfo.cols.info = 'response. ' .. tostring(pinfo.cols.info)
 	end
     
