@@ -206,7 +206,7 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
         -- debug('reassemble required: ' .. (request_length - buffer:len()) )
         pinfo.desegment_len = request_length - buffer:len()
         pinfo.desegment_offset = 0
-        return 0
+        return DESEGMENT_ONE_MORE_SEGMENT
     end
 
 	local packet_buffer = buffer(5)
