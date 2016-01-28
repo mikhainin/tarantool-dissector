@@ -231,12 +231,19 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
         subtree:add(buffer(108), "Reserved space")
         return buffer(0, 9):len()
     end
-    
-	local packet_length = msgpack.unpack(binary_string(buffer(0,5)))
-	request_length = packet_length + 5
-	
-	-- TODO: check bytes available
-	
+
+    local iterator = msgpack.unpacker(binary_string(buffer))
+    local _, packet_length = iterator()
+
+    -- TODO: check bytes available
+
+    local size_length, header_data = iterator()
+    size_length = size_length - 1;
+
+    local packet_buffer = buffer(size_length)
+
+    request_length = packet_length + size_length
+
     if (buffer:len() < request_length) then
         -- debug('reassemble required: ' .. (request_length - buffer:len()) )
         pinfo.desegment_len = request_length - buffer:len()
@@ -244,22 +251,19 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
         return DESEGMENT_ONE_MORE_SEGMENT
     end
 
-	local packet_buffer = buffer(5)
-	local header_data, bytes_used = msgpack.unpack(binary_string(packet_buffer))
-	
-	local command = code_to_command(header_data[0])
-	
-    local body_buffer = packet_buffer(bytes_used)
+    local command = code_to_command(header_data[TYPE])
+
+    local header_length, body_data = iterator()
+    header_length = header_length - size_length - 1
+    local body_buffer = packet_buffer(size_length + header_length)
 
 
-	if not command.is_response then
-	    local subtree = tree:add(tarantool_proto, buffer(),"Tarantool protocol data")
-	    -- subtree:add(tnt_field_sync, header_data[0x01])
-	    local header_descr = string.format('code: 0x%02x (%s), sync: 0x%04x', header_data[0x00], command.name, header_data[0x01])
-		subtree:add(packet_buffer(0, bytes_used), header_descr)
-		
-        local body_data, bytes_used = msgpack.unpack(binary_string(body_buffer))
-        
+    if not command.is_response then
+        local subtree = tree:add(tarantool_proto, buffer(),"Tarantool protocol data")
+        -- subtree:add(tnt_field_sync, header_data[0x01])
+        local header_descr = string.format('code: 0x%02x (%s), sync: 0x%04x', header_data[TYPE], command.name, header_data[SYNC])
+        subtree:add(packet_buffer(0, header_length), header_descr)
+
         local decoder = command.decoder or parser_not_implemented
 
         decoder(body_data, body_buffer, subtree)
@@ -273,9 +277,8 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
         --        request(buffer, subtree)
     else
         local subtree = tree:add(tarantool_proto,buffer(),"Tarantool protocol data (response)")
-	    local header_descr = string.format('code: 0x%02x (%s), sync: 0x%04x', header_data[0], command.name, header_data[1])
-		subtree:add(packet_buffer(0, bytes_used), header_descr)
-        local body_data, bytes_used = msgpack.unpack(binary_string(packet_buffer(bytes_used)))
+        local header_descr = string.format('code: 0x%02x (%s), sync: 0x%04x', header_data[TYPE], command.name, header_data[SYNC])
+        subtree:add(packet_buffer(0, header_length), header_descr)
         command.decoder(body_data, body_buffer, subtree)
         pinfo.cols.info = 'Response. ' .. tostring(pinfo.cols.info)
     end
