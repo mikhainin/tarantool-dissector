@@ -3,38 +3,38 @@ local msgpack = require 'MessagePack'
 
 -- constants
 -- common
-GREETING_SIZE          = 128
-GREETING_SALT_OFFSET   = 64
-GREETING_SALT_SIZE     = 44
+local GREETING_SIZE          = 128
+local GREETING_SALT_OFFSET   = 64
+local GREETING_SALT_SIZE     = 44
 
 -- packet codes
-OK         = 0x00
-SELECT     = 0x01
-INSERT     = 0x02
-REPLACE    = 0x03
-UPDATE     = 0x04
-DELETE     = 0x05
-CALL       = 0x06
-AUTH       = 0x07
-EVAL       = 0x08
-UPSERT     = 0x09
-PING       = 0x40
+local OK         = 0x00
+local SELECT     = 0x01
+local INSERT     = 0x02
+local REPLACE    = 0x03
+local UPDATE     = 0x04
+local DELETE     = 0x05
+local CALL       = 0x06
+local AUTH       = 0x07
+local EVAL       = 0x08
+local UPSERT     = 0x09
+local PING       = 0x40
 
 -- packet keys
-TYPE          = 0x00
-SYNC          = 0x01
-SPACE_ID      = 0x10
-INDEX_ID      = 0x11
-LIMIT         = 0x12
-OFFSET        = 0x13
-ITERATOR      = 0x14
-KEY           = 0x20
-TUPLE         = 0x21
-FUNCTION_NAME = 0x22
-USER_NAME     = 0x23
-EXPRESSION    = 0x27
-DATA          = 0x30
-ERROR         = 0x31
+local TYPE          = 0x00
+local SYNC          = 0x01
+local SPACE_ID      = 0x10
+local INDEX_ID      = 0x11
+local LIMIT         = 0x12
+local OFFSET        = 0x13
+local ITERATOR      = 0x14
+local KEY           = 0x20
+local TUPLE         = 0x21
+local FUNCTION_NAME = 0x22
+local USER_NAME     = 0x23
+local EXPRESSION    = 0x27
+local DATA          = 0x30
+local ERROR         = 0x31
 
 -- declare the protocol
 tarantool_proto = Proto("tarantool","Tarantool")
@@ -48,7 +48,7 @@ tarantool_proto.fields = {
 
 -- extracts bytes from the buffer
 function binary_string(buffer)
-    result = {}
+    local result = {}
     for i=0,buffer:len() - 1 do
         table.insert(result, string.char(buffer(i, 1):le_uint()))
     end
@@ -242,7 +242,7 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
 
     local packet_buffer = buffer(size_length)
 
-    request_length = packet_length + size_length
+    local request_length = packet_length + size_length
 
     if (buffer:len() < request_length) then
         -- debug('reassemble required: ' .. (request_length - buffer:len()) )
