@@ -287,9 +287,6 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
 
 end
 
--- load the udp.port table
 tcp_table = DissectorTable.get("tcp.port")
--- register our protocol to handle tcp port 14888
--- tcp_table:add(14888,tarantool_proto)
 tcp_table:add(3301,tarantool_proto)
 
