@@ -20,8 +20,8 @@ dissector implemented for Tarantool binary protocol.
   Note that Wireshark requires root privileges, make sure you are using plugin
   directory for a user that is used for running Wireshark. It possible to run
   Wireshark in terminal and pass Lua extension explicitly: `wireshark -X
-  lua_script:tarantool16.dissector.lua` or `tshark -X
-  lua_script:tarantool16.dissector.lua -V`.
+  lua_script:tarantool.dissector.lua` or `tshark -X
+  lua_script:tarantool.dissector.lua -V`.
 - Run Wireshark. By default Tarantool protocol dissector decodes TCP packets
   with port 3301. However one can change a port for dissector in Wireshark
   settings, see chapter [Control Protocol dissection][control-protocol-dissection].
