@@ -14,27 +14,75 @@ local INSERT     = 0x02
 local REPLACE    = 0x03
 local UPDATE     = 0x04
 local DELETE     = 0x05
-local CALL       = 0x06
+local CALL_16    = 0x06
 local AUTH       = 0x07
 local EVAL       = 0x08
 local UPSERT     = 0x09
+local CALL       = 0x0a
+local EXECUTE    = 0x0b
+local NOP        = 0x0c
+local PREPARE    = 0x0d
+local CONFIRM    = 0x28
+local ROLLBACK   = 0x29
 local PING       = 0x40
+local JOIN       = 0x41
+local SUBSCRIBE  = 0x42
+local VOTE_DEPRECATED = 0x43
+local VOTE            = 0x44
+local FETCH_SNAPSHOT  = 0x45
+local REGISTER        = 0x46
 
 -- packet keys
+local REQUEST_TYPE  = 0x00
 local TYPE          = 0x00
 local SYNC          = 0x01
+local REPLICA_ID    = 0x02
+local LSN           = 0x03
+local TIMESTAMP     = 0x04
+local SCHEMA_VERSION = 0x05
+local FLAGS         = 0x09
 local SPACE_ID      = 0x10
 local INDEX_ID      = 0x11
 local LIMIT         = 0x12
 local OFFSET        = 0x13
 local ITERATOR      = 0x14
+local INDEX_BASE    = 0x15
 local KEY           = 0x20
 local TUPLE         = 0x21
 local FUNCTION_NAME = 0x22
 local USER_NAME     = 0x23
+local INSTANCE_UUID = 0x24
+local CLUSTER_UUID  = 0x25
+local VCLOCK        = 0x26
 local EXPRESSION    = 0x27
+local OPS           = 0x28
+local BALLOT        = 0x29
 local DATA          = 0x30
 local ERROR         = 0x31
+
+local BALLOT_IS_RO_CFG = 0x01
+local BALLOT_VCLOCK  = 0x02
+local BALLOT_GC_VCLOCK = 0x03
+local BALLOT_IS_RO  = 0x04
+local BALLOT_IS_ANON = 0x05
+local BALLOT_IS_BOOTED = 0x06
+local TUPLE_META    = 0x2a
+local OPTIONS       = 0x2b
+local ERROR_24      = 0x31
+local METADATA      = 0x32
+local BIND_METADATA = 0x33
+local BIND_COUNT    = 0x34
+local SQL_TEXT      = 0x40
+local SQL_BIND      = 0x41
+local SQL_INFO      = 0x42
+local STMT_ID       = 0x43
+local ERROR         = 0x52
+local FIELD_NAME    = 0x00
+local FIELD_TYPE    = 0x01
+local FIELD_COLL    = 0x02
+local FIELD_IS_NULLABLE = 0x03
+local FIELD_IS_AUTOINCREMENT = 0x04
+local FIELD_SPAN    = 0x05
 
 -- declare the protocol
 tarantool_proto = Proto("tarantool","Tarantool")
@@ -161,6 +209,147 @@ local function parse_delete(tbl, buffer, subtree)
     subtree:add(buffer, descr)
 end
 
+local function parse_upsert(tbl, buffer, subtree)
+    local space_id = tbl[SPACE_ID]     -- int
+    local index_base = tbl[INDEX_BASE] -- int
+    local ops = tbl[OPS]               -- int
+    local tuple = tbl[TUPLE]           -- array
+
+    subtree:add(buffer, 'space_id: ' .. space_id)
+    local tuple_tree = subtree:add(buffer, 'tuple')
+    local tuple_str = table.concat(map(tuple, escape_call_arg), ', ')
+
+    tuple_tree:add(buffer, tuple_str)
+end
+
+local function parse_auth(tbl, buffer, subtree)
+    local user_name = tbl[USER_NAME]     -- str
+    local tuple = tbl[TUPLE]             -- array
+
+    -- chap-sha1 is the only supported mechanism (v. 2.10).
+    local proto = tuple[1]
+    local scramble = tuple[2]
+
+    local descr = string.format(
+       'Authentication with username "%s", protocol %s and scramble "%s"',
+       user_name,
+       proto,
+       scramble
+    )
+    subtree:add(buffer, descr)
+end
+
+local function parse_update(tbl, buffer, subtree)
+    local space_id = tbl[SPACE_ID]     -- int
+    local index_id = tbl[INDEX_ID]     -- int
+    local key = tbl[KEY]               -- array
+    local tuple = tbl[TUPLE]           -- array
+
+    subtree:add(buffer, 'space_id: ' .. space_id)
+    local tuple_tree = subtree:add(buffer, 'tuple')
+    local tuple_str = table.concat(map(tuple, escape_call_arg), ', ')
+
+    tuple_tree:add(buffer, tuple_str)
+    local key_string = table.concat(map(key, escape_call_arg), ', ')
+    subtree:add(buffer, 'key: ' .. key_string)
+end
+
+local function parse_execute(tbl, buffer, subtree)
+    local stmt_id = tbl[STMT_ID]     -- int
+    local sql_text = tbl[SQL_TEXT]   -- str
+    local sql_bind = tbl[SQL_BIND]   -- array
+
+    local sql_bind_str = table.concat(map(sql_bind, escape_call_arg), ', ')
+    if sql_bind_str ~= '' then
+        sql_bind_str = string.format(', with parameter values "%s"', sql_bind_str)
+    end
+
+    if stmt_id ~= nil then
+        local descr = string.format(
+           'executing a prepared statement with id %d%s',
+           stmt_id,
+           sql_bind_str
+        )
+        subtree:add(buffer, descr)
+    else
+        local descr = string.format(
+           'executing an SQL string "%s"%s',
+           sql_text,
+           sql_bind_str
+        )
+        subtree:add(buffer, descr)
+    end
+end
+
+local function parse_prepare(tbl, buffer, subtree)
+    local stmt_id = tbl[STMT_ID]     -- int
+    local sql_text = tbl[SQL_TEXT]   -- str
+
+    if stmt_id ~= nil then
+        local descr = string.format(
+           'prepare a statement with id %d',
+           stmt_id
+        )
+        subtree:add(buffer, descr)
+    else
+        local descr = string.format(
+           'preparing an SQL string "%s"',
+           sql_text
+        )
+        subtree:add(buffer, descr)
+    end
+end
+
+local function parse_confirm(tbl, buffer, subtree)
+    local replica_id = tbl[REPLICA_ID]     -- int
+    local lsn = tbl[LSN]                   -- int
+
+    local descr = string.format(
+       [[transactions originated from the instance with id = "%d"
+        have achieved quorum and can be committed, up to and including lsn "%d".]],
+       replica_id,
+       lsn
+    )
+    subtree:add(buffer, descr)
+end
+
+local function parse_rollback(tbl, buffer, subtree)
+    local replica_id = tbl[REPLICA_ID]     -- int
+    local lsn = tbl[LSN]                   -- int
+
+    local descr = string.format(
+       [[transactions originated from the instance with id = "%d"
+       couldn't achieve quorum for some reason and should be rolled back,
+       down to lsn = "%d" and including it.]],
+       replica_id,
+       lsn
+    )
+    subtree:add(buffer, descr)
+end
+
+local function parse_subscribe(tbl, buffer, subtree)
+    local vclock = tbl[VCLOCK]
+
+    local srv_id = vclock[1]
+    local srv_lsn = vclock[2]
+
+    local descr = string.format(
+       'Subscribe to server with id "%d" and lsn "%d"',
+       srv_id,
+       srv_lsn
+    )
+    subtree:add(buffer, descr)
+end
+
+local function parse_join(tbl, buffer, subtree)
+    local uuid = tbl[INSTANCE_UUID]
+
+    local descr = string.format(
+       'Initial join request with uuid = "%s"',
+       uuid
+    )
+    subtree:add(buffer, descr)
+end
 
 local function parse_error_response(tbl, buffer, subtree)
     local data = tbl[ERROR]
@@ -184,6 +373,10 @@ local function parse_response(tbl, buffer, subtree)
     end
 end
 
+local function parse_nop(tbl, buffer, subtree)
+    subtree:add(buffer, 'NOP (No Operation')
+end
+
 local function parser_not_implemented(tbl, buffer, subtree)
     subtree:add(buffer, 'parser not yet implemented (or unknown packet?)')
 end
@@ -194,12 +387,24 @@ local function code_to_command(code)
         [SELECT]  = {name = 'select', decoder = parse_select},
         [INSERT]  = {name = 'insert', decoder = parse_insert},
         [REPLACE] = {name = 'replace', decoder = parse_insert},
-        [UPDATE]  = {name = 'update', decoder = parser_not_implemented},
+        [UPDATE]  = {name = 'update', decoder = parse_update},
         [DELETE]  = {name = 'delete', decoder = parse_delete},
         [CALL]    = {name = 'call', decoder = parse_call},
-        [AUTH]    = {name = 'auth', decoder = parser_not_implemented},
+        [CALL_16] = {name = 'call_16', decoder = parser_not_implemented}, -- Deprecated.
+        [AUTH]    = {name = 'auth', decoder = parse_auth},
         [EVAL]    = {name = 'eval', decoder = parse_eval},
-        [UPSERT]  = {name = 'upsert', decoder = parser_not_implemented},
+        [UPSERT]  = {name = 'upsert', decoder = parser_upsert},
+        [EXECUTE] = {name = 'execute', decoder = parse_execute},
+        [NOP]     = {name = 'nop', decoder = parse_nop},
+        [PREPARE] = {name = 'prepare', decoder = parse_prepare},
+        [CONFIRM] = {name = 'confirm', decoder = parse_confirm},
+        [ROLLBACK] = {name = 'rollback', decoder = parse_rollback},
+        [JOIN]    = {name = 'join', decoder = parse_join},
+        [VOTE]    = {name = 'vote', decoder = parser_not_implemented},
+        [VOTE_DEPRECATED] = {name = 'vote_deprecated', decoder = parser_not_implemented},
+        [SUBSCRIBE] = {name = 'subscribe', decoder = parse_subscribe},
+        [FETCH_SNAPSHOT] = {name = 'fetch_snapshot', decoder = parser_not_implemented},
+        [REGISTER] = {name = 'register', decoder = parser_not_implemented},
 
         -- Admin command codes
         [PING] = {name = 'ping', decoder = parser_not_implemented},
@@ -287,9 +492,5 @@ function tarantool_proto.dissector(buffer, pinfo, tree)
 
 end
 
--- load the udp.port table
 tcp_table = DissectorTable.get("tcp.port")
--- register our protocol to handle tcp port 14888
--- tcp_table:add(14888,tarantool_proto)
 tcp_table:add(3301,tarantool_proto)
-

@@ -31,8 +31,8 @@ end
 
 
 
-function add_one_tulpe(buffer, subtree, num)
-    debug('-- add_one_tulpe --')
+function add_one_tuple(buffer, subtree, num)
+    debug('-- add_one_tuple --')
     --[[
         <tuple> ::= <cardinality><field>+
         <cardinality> ::= <int32>
@@ -67,7 +67,7 @@ function add_one_tulpe(buffer, subtree, num)
     
 end
 
-function add_tulpes(buffer, subtree, name, count)
+function add_tuples(buffer, subtree, name, count)
     -- local count  = count_buffer(0,4):le_uint()
     local tuples = subtree:add( tarantool_proto, buffer(), "Tuples")
     
@@ -75,12 +75,12 @@ function add_tulpes(buffer, subtree, name, count)
     
     local offset = 0
     for i=1,count do
-        offset = offset + add_one_tulpe( buffer(offset), tuples, i )
+        offset = offset + add_one_tuple( buffer(offset), tuples, i )
     end
     
 end
 
-function add_fqtulpe(buffer, subtree, name, count)
+function add_fqtuple(buffer, subtree, name, count)
     
     local tuples = subtree:add( tarantool_proto, buffer(), "fq_tuples (count: " .. count ..')' )
     
@@ -88,7 +88,7 @@ function add_fqtulpe(buffer, subtree, name, count)
     for i=1,count do
         local size = buffer(0,4):le_uint()
         tuples:add( buffer(offset,4), 'tuple size: ' .. size )
-        offset = offset + add_one_tulpe( buffer(offset + 4), tuples, i )
+        offset = offset + add_one_tuple( buffer(offset + 4), tuples, i )
         offset = offset + 4
     end
     
@@ -117,7 +117,7 @@ function select_request_body(buffer, subtree)
     tree:add( buffer(12,4), "Limit # " .. limit )
     
     tree:add( buffer(16,4), "Tuples count: " .. count )
-    add_tulpes(buffer(20, buffer:len() - 20), tree, 'tuple', count)
+    add_tuples(buffer(20, buffer:len() - 20), tree, 'tuple', count)
     
 end
 
@@ -164,7 +164,7 @@ function insert_request_body(buffer, subtree)
     tree:add( buffer(0, 4), "Namespace # " .. namespace_no )
     tree:add( buffer(4, 4), "Flags # " .. flags )
     
-    add_one_tulpe(buffer(8), tree, 0)
+    add_one_tuple(buffer(8), tree, 0)
     
 end
 
@@ -181,7 +181,7 @@ function deletev13_request_body(buffer, subtree)
     local namespace_no = buffer(0,4):le_uint()
     tree:add( buffer(0, 4), "Namespace # " .. namespace_no )
     
-    add_one_tulpe(buffer(4), tree, 1)
+    add_one_tuple(buffer(4), tree, 1)
     
 end
 function delete_request_body(buffer, subtree)
@@ -200,7 +200,7 @@ function call_request_body(buffer, subtree)
     local name = buffer(5, field_length):string()
     tree:add( buffer(5, field_length), "name " .. name )
     
-    add_one_tulpe(buffer(4 + 1 + field_length), tree, 0)
+    add_one_tuple(buffer(4 + 1 + field_length), tree, 0)
 end
 
 
@@ -224,7 +224,7 @@ function insert_reponse_body(buffer, subtree)
     
     if ( buffer:len() > 4 ) then
         -- subtree:add( buffer(4),"Insert response data" )
-        add_fqtulpe( buffer(4), subtree, "Select tulpes", count)
+        add_fqtuple( buffer(4), subtree, "Select tuples", count)
     end
 end
 function select_reponse_body(buffer, subtree)
@@ -236,7 +236,7 @@ function select_reponse_body(buffer, subtree)
     tree:add( buffer(0, 4), "Count: " .. count )
     
     if ( buffer:len() > 4 ) then
-        add_fqtulpe( buffer(4), subtree, "Select tulpes", count)
+        add_fqtuple( buffer(4), subtree, "Select tuples", count)
     end
 end
 function call_reponse_body(buffer, subtree)
@@ -248,7 +248,7 @@ function call_reponse_body(buffer, subtree)
     tree:add( buffer(0, 4), "Count: " .. count )
     
     if ( buffer:len() > 4 ) then
-        add_fqtulpe( buffer(4), subtree, "Call tulpes", count)
+        add_fqtuple( buffer(4), subtree, "Call tuples", count)
     end
 end
 function requestfunction(reqid)
