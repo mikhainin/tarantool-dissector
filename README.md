@@ -26,6 +26,13 @@ dissector implemented for Tarantool binary protocol.
   with port 3301. However one can change a port for dissector in Wireshark
   settings, see chapter [Control Protocol dissection][control-protocol-dissection].
 
+### How to test
+
+There is a script `test.lua` that uses Tarantool instance remotely via network
+and covers most part of IProto commands. For testing one can run Wireshark on
+local interface `lo0` with filtering by port 3301 and run script with command
+`tarantool test.lua`.
+
 [box-protocol]: https://www.tarantool.io/en/doc/latest/dev_guide/internals/box_protocol/
 [screenshot]: screenshot.png
 [building-and-installing-wireshark]: https://www.wireshark.org/docs/wsug_html_chunked/ChapterBuildInstall.html
