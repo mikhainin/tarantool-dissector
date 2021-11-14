@@ -1,4 +1,4 @@
-#!/usr/local/bin/tarantool
+#!/usr/bin/env tarantool
 
 -- TODO:
 --     PREPARE
