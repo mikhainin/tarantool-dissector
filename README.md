@@ -1,3 +1,6 @@
+| ⚠️ WARNING: This repository is no longer active, support was moved to https://github.com/tarantool/tarantool-dissector |
+|----|
+
 ## Tarantool protocol dissector
 
 [Tarantool](https://www.tarantool.io/en/) is an in-memory computing platform.
